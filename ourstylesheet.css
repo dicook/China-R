@@ -279,7 +279,7 @@ Full-Width Styles
 }
 
 #header_wrap {
-  background: #f1debe;
+  background: #fff;
   color: #2c2e55;
 }
 
@@ -289,10 +289,9 @@ Full-Width Styles
 
 #project_title {
   margin: 0;
-  color: #fff;
+  color: #2c2e55;
   font-size: 42px;
   font-weight: 700;
-  text-shadow: #111 0px 0px 10px;
 }
 
 #project_tagline {
