@@ -1,0 +1,747 @@
+---
+title: "Introduction Exploring Data with R"
+author: "Professor Di Cook, Econometrics and Business Statistics, Monash University"
+date: "Beijing, China - May 24-26, 2016"
+output:
+  ioslides_presentation
+css:
+  my_css.css
+---
+
+## Outline
+
+- <font color="#7c8a1a"> Session 1: Motivation, why and how to think about data, and getting started with R</font>
+- Session 2: Making basic plots, grammar of graphics, good practices
+- Session 3: Advanced graphics, layering, using maps
+
+```{r setup, include = FALSE}
+library("knitr")
+opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  cache = FALSE,
+  fig.height = 2,
+  fig.width = 5,
+  fig.caption = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+options(digits=2)
+library("rmarkdown")
+library("devtools")
+library("readr")
+library("tidyr")
+library("ggplot2")
+library("ggthemes")
+library("gridExtra")
+library("dplyr")
+library("lubridate")
+library("GGally")
+library("rworldmap")
+library("ggmap")
+library("scales")
+library("dichromat")
+library("RColorBrewer")
+library("viridis")
+library("purrr")
+library("broom")
+library("timeDate")
+library("haven")
+library("boot")
+library("plotly")
+```
+
+
+## What is Exploratory Data Analysis?
+
+- EDA is concerned about **letting the data speak**, and discovering what is in the data as opposed to predicting from the data
+- Initial data analysis is a part of EDA, where data quality and model assumptions are checked using descriptive statistics, prior to modeling: "The first thing to do with data is to look at them.... usually
+means tabulating and plotting the data in many different ways to `see what's going on'. With the wide availability of computer packages and graphics nowadays there is no excuse for ducking the labour of this preliminary phase, and it may save some red faces later." [Crowder and Hand, 1990](https://books.google.com.au/books/about/Analysis_of_Repeated_Measures.html?id=XsGX6Jgzo-IC&redir_esc=y)
+- Relax the focus on the problem statement and explore broadly different aspects of the data.
+
+## Tukey's contributions
+
+![](tukey.png)
+
+- EDA complements model building: "The combination of some data and an aching desire for an answer does not ensure that a reasonable answer can be extracted from a given body of data" [Tukey, 1986](http://www.jstor.org/pss/2683137).
+- "The greatest value of a picture is when it forces us to notice what we never expected to see." [Tukey, 1977](https://en.wikipedia.org/wiki/John_Tukey) Plotting data is an important component of EDA.
+
+## Examples
+
+These are two examples of data sets that I've analysed in recent years, and learned a lot by making plots. 
+
+- Education: Every four years students across the globe are tested on their math, reading and science skills and surveyed about their educational experience and social environment, as part of assessing workforce readiness of teenagers.  [http://www.oecd.org/pisa/pisaproducts/](http://www.oecd.org/pisa/pisaproducts/)
+- Climate: Monitors and sensors are located across the globe measuring aspects of the environment, e.g. [Scripps Inst. of Oceanography](http://scrippsco2.ucsd.edu/data/atmospheric_co2) 
+
+The data can be pulled from the web, and the code that produced the plots in these slides is in the `.Rmd` version, so that you can reproduce this work yourself.
+
+## Education
+
+- 485,490 students math, science and reading test scores
+- 65 countries, between 100-1500 schools in each
+- Student questionnaires about their environment (635 vars)
+- Parents surveyed on work, life, income (143 vars)
+- Principals provide information about their schools (291 vars)
+
+## Math Gender Gap {.flexbox .vcenter #myImagePage1}
+
+![](gendergap.pdf)
+
+## Math Gender Gap
+
+- Primary question: Are boys better than girls at math, ON AVERAGE?
+- Secondary questions: How does studying, truancy, parents, possessions, number of TVs in the household, ... affect the scores? 
+
+## Calculations
+
+- Compute the weighted mean for each of girls and boys, for each country
+- Difference the means
+- Take bootstrap samples, and recompute to reproduce confidence intervals
+- Plot the country mean difference in order of largest to smallest
+
+##
+
+```{r load_data, echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache=FALSE}
+student2012.sub <- readRDS("../data/student_sub.rds")
+```
+
+```{r mapdata, echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache=FALSE}
+world <- getMap(resolution = "low")
+extractPolys <- function(p) {
+  polys <- NULL
+  for (i in 1:length(p)) {
+    for (j in 1:length(p[[i]]@Polygons)) {
+      x <- p[[i]]@Polygons[[j]]@coords
+      polys$lon <- c(polys$lon, x[,1])
+      polys$lat <- c(polys$lat, x[,2])
+      polys$ID <- c(polys$ID, rep(p[[i]]@ID, nrow(x)))
+      polys$region <- c(polys$region, rep(paste(p[[i]]@ID, j, sep="_"), nrow(x)))
+      polys$order <- c(polys$order, 1:nrow(x))
+    }
+  }
+  return(data.frame(polys))
+}
+polys <- extractPolys(world@polygons)
+
+## Map theme
+theme_map <- theme_bw()
+theme_map$line <- element_blank()
+theme_map$strip.text <- element_blank()
+theme_map$axis.text <- element_blank()
+theme_map$plot.title <- element_blank()
+theme_map$axis.title <- element_blank()
+theme_map$panel.border <- element_rect(colour = "grey90", size=1, fill=NA)
+```
+
+```{r dataprep, cache=FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+student2012.sub$ST04Q01 <- factor(student2012.sub$ST04Q01, 
+  levels=c(1,2), labels=c("Female", "Male"))
+```
+
+```{r computemean, cache=FALSE, echo = FALSE, message = FALSE, warning = FALSE, error=FALSE, fig.width=5, fig.height=6}
+# Calculate the statistics
+student2012.stats <- student2012.sub %>% 
+  group_by(CNT) %>%
+  summarise(mathgap=mean(PV1MATH[ST04Q01=="Male"], na.rm=T)-
+                    mean(PV1MATH[ST04Q01=="Female"], na.rm=T),
+            wmathgap=weighted.mean(PV1MATH[ST04Q01=="Male"], 
+                                   w=SENWGT_STU[ST04Q01=="Male"], na.rm=T)-
+                     weighted.mean(PV1MATH[ST04Q01=="Female"],
+                                   w=SENWGT_STU[ST04Q01=="Female"], na.rm=T))
+
+# Compute confidence intervals
+cifn <- function(d, i) {
+  x <- d[i,]
+  ci <- weighted.mean(x$PV1MATH[x$ST04Q01=="Male"], 
+                                   w=x$SENWGT_STU[x$ST04Q01=="Male"], na.rm=T)-
+                     weighted.mean(x$PV1MATH[x$ST04Q01=="Female"],
+                                   w=x$SENWGT_STU[x$ST04Q01=="Female"], na.rm=T)
+  ci
+}
+bootfn <- function(d) {
+  r <- boot(d, statistic=cifn, R=100)
+  l <- sort(r$t)[5]
+  u <- sort(r$t)[95]
+  ci <- c(l, u)
+  return(ci)
+}
+student2012.sub.summary.gap.boot <- student2012.sub %>% 
+  split(.$CNT) %>% purrr::map(bootfn) %>% data.frame() %>%
+  gather(CNT, value)
+student2012.sub.summary.gap.boot$ci <- 
+  rep(c("ml","mu"), length(unique(student2012.sub.summary.gap.boot$CNT)))
+student2012.sub.summary.gap.boot.wide <- student2012.sub.summary.gap.boot %>% spread(ci, value)
+student2012.sub.summary.gap <- merge(student2012.stats, student2012.sub.summary.gap.boot.wide)
+
+# Match three digit codes to country names 
+student2012.sub.summary.gap$name <- NA
+for (i in 1:length(student2012.sub.summary.gap$name))  
+  student2012.sub.summary.gap$name[i] <-
+  isoToName(as.character(student2012.sub.summary.gap$CNT[i]))
+# QCN is Shanghai, not whole of China - Don't know what country TAP is
+student2012.sub.summary.gap$name[student2012.sub.summary.gap$CNT == "QCN"] <- isoToName("CHN")
+student2012.sub.summary.gap$name[student2012.sub.summary.gap$CNT == "TAP"] <- "TAP"
+
+# Make a categorical gap variable
+student2012.sub.summary.gap$wmathgap_cat <- "same"
+student2012.sub.summary.gap$wmathgap_cat[student2012.sub.summary.gap$ml > 0] <- "boys"
+student2012.sub.summary.gap$wmathgap_cat[student2012.sub.summary.gap$mu < 0] <- "girls"
+
+# Set order of countries by math gap
+student2012.sub.summary.gap$CNT <- factor(student2012.sub.summary.gap$CNT, 
+      levels=student2012.sub.summary.gap$CNT[order(student2012.sub.summary.gap$wmathgap)])
+student2012.sub.summary.gap$name <- factor(student2012.sub.summary.gap$name, 
+      levels=student2012.sub.summary.gap$name[order(student2012.sub.summary.gap$wmathgap)])
+
+# Plot
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + coord_flip() + theme_bw() + 
+  geom_point(aes(x=name, y=wmathgap, color=wmathgap_cat), size=3) + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu, color=wmathgap_cat)) + 
+  xlab("") +  
+  scale_colour_manual("", values=c("boys"="skyblue", "girls"="pink", "same"="lightgreen")) +
+  scale_y_continuous("Girls <----------> Boys", breaks=seq(-30, 30, 10), limits=c(-35, 35), 
+                     labels=c(seq(30, 0, -10), seq(10, 30, 10))) + 
+  theme(axis.text.x = element_text(size=5), axis.text.y = element_text(size=5), 
+        axis.title = element_text(size=7), legend.text = element_text(size=5),
+        legend.title = element_text(size=5))
+```
+
+##
+
+```{r maps, cache=FALSE, echo = FALSE, message = FALSE, warning = FALSE, fig.width=8, fig.height=4}
+polys <- polys %>% rename(name = ID)
+student2012.sub.map <- left_join(student2012.sub.summary.gap, polys)
+student2012.sub.map <- student2012.sub.map %>% arrange(region, order)
+
+ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order), colour=I("grey90"), size=0.1) + 
+  geom_polygon(data=student2012.sub.map, aes(x=lon, y=lat, group=region, order=order,  fill=wmathgap_cat)) +
+  scale_fill_manual("Diff>5", values=c("boys"="skyblue", "girls"="pink", "same"="lightgreen")) + 
+  scale_x_continuous(expand=c(0,0)) + scale_y_continuous(expand=c(0,0)) +
+  coord_equal() + theme_map 
+```
+
+## Individual Scores
+
+- How do individuals look?
+- We will find the minimum and maximum values for girls and boys for each country, and plot these.
+
+##
+
+```{r echo=FALSE, fig.width=5, fig.height=6}
+# Calculate the statistics
+student2012.indiv <- student2012.sub %>% 
+  group_by(CNT, ST04Q01) %>%
+  summarise(min=min(PV1MATH, na.rm=T), 
+            max=max(PV1MATH, na.rm=T))
+
+# Match names
+student2012.indiv$name <- NA
+for (i in 1:length(student2012.indiv$name))  
+  student2012.indiv$name[i] <-
+  isoToName(as.character(student2012.indiv$CNT[i]))
+# QCN is Shanghai, not whole of China - Don't know what country TAP is
+student2012.indiv$name[student2012.indiv$CNT == "QCN"] <- isoToName("CHN")
+student2012.indiv$name[student2012.indiv$CNT == "TAP"] <- "TAP"
+
+# Set order of countries by max score
+ord <- order(student2012.indiv$max[student2012.indiv$ST04Q01=="Male"])
+student2012.indiv$CNT <- factor(student2012.indiv$CNT, 
+      levels=unique(student2012.indiv$CNT)[ord])
+student2012.indiv$name <- factor(student2012.indiv$name, 
+      levels=unique(student2012.indiv$name)[ord])
+
+ggplot(data=student2012.indiv) + 
+  geom_hline(yintercept=0, colour="grey80") + coord_flip() + theme_bw() + 
+  geom_point(aes(x=name, y=min, color=ST04Q01), size=3, alpha=0.8) + 
+  geom_point(aes(x=name, y=max, color=ST04Q01), size=3, alpha=0.8) + 
+  xlab("") + ylab("Math Scores") +
+  scale_colour_manual("", values=c("Male"="skyblue", "Female"="pink")) +
+  theme(axis.text.x = element_text(size=5), axis.text.y = element_text(size=5), 
+        axis.title = element_text(size=7), legend.text = element_text(size=5),
+        legend.title = element_text(size=5))
+```
+
+## Reading Scores
+
+- Do girls do better than boys ON AVERAGE on reading tests?
+- Repeat the same analysis with reading scores instead of math.
+
+##
+
+```{r readingmean, cache=FALSE, echo = FALSE, message = FALSE, warning = FALSE, error=FALSE, fig.width=5, fig.height=6}
+# Calculate the statistics
+student2012.stats <- student2012.sub %>% 
+  group_by(CNT) %>%
+  summarise(readgap=mean(PV1READ[ST04Q01=="Male"], na.rm=T)-
+                    mean(PV1READ[ST04Q01=="Female"], na.rm=T),
+            wreadgap=weighted.mean(PV1READ[ST04Q01=="Male"], 
+                                   w=SENWGT_STU[ST04Q01=="Male"], na.rm=T)-
+                     weighted.mean(PV1READ[ST04Q01=="Female"],
+                                   w=SENWGT_STU[ST04Q01=="Female"], na.rm=T))
+
+cifn <- function(d, i) {
+  x <- d[i,]
+  ci <- weighted.mean(x$PV1READ[x$ST04Q01=="Male"], 
+                                   w=x$SENWGT_STU[x$ST04Q01=="Male"], na.rm=T)-
+                     weighted.mean(x$PV1READ[x$ST04Q01=="Female"],
+                                   w=x$SENWGT_STU[x$ST04Q01=="Female"], na.rm=T)
+  ci
+}
+student2012.sub.summary.gap.boot <- student2012.sub %>% 
+  split(.$CNT) %>% purrr::map(bootfn) %>% data.frame() %>%
+  gather(CNT, value)
+student2012.sub.summary.gap.boot$ci <- 
+  rep(c("ml","mu"), length(unique(student2012.sub.summary.gap.boot$CNT)))
+student2012.sub.summary.gap.boot.wide <- student2012.sub.summary.gap.boot %>% spread(ci, value)
+student2012.sub.summary.gap <- merge(student2012.stats, student2012.sub.summary.gap.boot.wide)
+
+# Match three digit codes to country names 
+student2012.sub.summary.gap$name <- NA
+for (i in 1:length(student2012.sub.summary.gap$name))  
+  student2012.sub.summary.gap$name[i] <-
+  isoToName(as.character(student2012.sub.summary.gap$CNT[i]))
+# QCN is Shanghai, not whole of China - Don't know what country TAP is
+student2012.sub.summary.gap$name[student2012.sub.summary.gap$CNT == "QCN"] <- isoToName("CHN")
+student2012.sub.summary.gap$name[student2012.sub.summary.gap$CNT == "TAP"] <- "TAP"
+
+# Set order of countries by math gap
+student2012.sub.summary.gap$CNT <- factor(student2012.sub.summary.gap$CNT, 
+      levels=student2012.sub.summary.gap$CNT[order(student2012.sub.summary.gap$wreadgap)])
+student2012.sub.summary.gap$name <- factor(student2012.sub.summary.gap$name, 
+      levels=student2012.sub.summary.gap$name[order(student2012.sub.summary.gap$wreadgap)])
+
+# Plot
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + coord_flip() + theme_bw() + 
+  geom_point(aes(x=name, y=wreadgap), size=3, color="pink") + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu), color="pink") + 
+  xlab("") +  
+  scale_y_continuous("Girls <----------> Boys", breaks=seq(-70, 70, 10), limits=c(-75, 75), 
+                     labels=c(seq(70, 0, -10), seq(10, 70, 10))) + 
+  theme(axis.text.x = element_text(size=5), axis.text.y = element_text(size=5), 
+        axis.title = element_text(size=7), legend.text = element_text(size=5),
+        legend.title = element_text(size=5))
+```
+
+## Time Reported Studying Out of School
+
+- Compute the math mean for each hour of study
+- Plot mean by hour by country, join by a line, to examine trend
+
+##
+
+```{r studyhours, echo=FALSE, fig.width=9, fig.height=6}
+student2012.sub$ST57Q01[student2012.sub$ST57Q01 > 15] <- NA
+
+# loess is too slow, so calc means for each level, and plot these
+student2012.study <- student2012.sub %>% 
+  group_by(CNT, ST57Q01, ST04Q01) %>%
+  summarise(wmath=weighted.mean(PV1MATH, w=SENWGT_STU, na.rm=T))
+
+ggplot(data = student2012.study, aes(x = ST57Q01, y = wmath, colour=ST04Q01)) + 
+  xlab("Hours spent out of school studying per week") + 
+  ylab("Math score") + 
+  geom_line() +
+  facet_wrap(~CNT, ncol=9) 
+```
+
+##
+
+## What's the Deal About Carbon Dioxide?
+
+- "Scientific consensus states that carbon emissions must be reduced by 80% by 2050 to avoid temperature rise of more than 2$^o$C." [Carbon Neutral](http://www.carbonneutral.com/resource-hub/carbon-offsetting-explained)
+- Carbon offsets: Carbon offsetting is the use of carbon credits to enable businesses to compensate for their emissions.
+- Kyoto protocol in 1992, attempt to get international cooperation to reduce emissions. 
+
+
+## {.flexbox .vcenter #myImagePage1}
+
+![](carbon.pdf)
+
+## Carbon Dioxide Data
+
+- Data is collected at a number of locations world wide. 
+- See [Scripps Inst. of Oceanography](http://scrippsco2.ucsd.edu/data/atmospheric_co2) 
+- Let's pull the data from the web and take a look ...
+- 
+- Recordings from South Pole (SPO), Kermadec Islands (KER), Mauna Loa Hawaii (MLF), La Jolla Pier, California (LJO), Point Barrow, Alaska (PTB).
+
+##
+
+```{r CO2, fig.width=8, fig.height=5, warning=FALSE, message=FALSE, echo=FALSE, cache=FALSE}
+CO2.ptb<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ptb.csv", sep=",", skip=69)
+colnames(CO2.ptb)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ptb$lat<-71.3
+CO2.ptb$lon<-(-156.6)
+CO2.ptb$stn<-"ptb"
+
+CO2.ljo<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ljo.csv", sep=",", skip=69)
+colnames(CO2.ljo)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ljo$lat<-32.9
+CO2.ljo$lon<-(-117.3)
+CO2.ljo$stn<-"ljo"
+
+CO2.mlf<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_mlf.csv", sep=",", skip=69)
+colnames(CO2.mlf)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.mlf$lat<-19.5
+CO2.mlf$lon<-(-155.6)
+CO2.mlf$stn<-"mlf"
+
+CO2.spo<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_spo.csv", sep=",", skip=69)
+colnames(CO2.spo)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.spo$lat<- (-90.0)
+CO2.spo$lon<-0
+CO2.spo$stn<-"spo"
+
+CO2.ker<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ker.csv", sep=",", skip=69)
+colnames(CO2.ker)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ker$lat<-(-29.2)
+CO2.ker$lon<-(-177.9)
+CO2.ker$stn<-"ker"
+
+CO2.all<-rbind(CO2.ker,CO2.ljo,CO2.mlf,CO2.ptb,CO2.spo)
+CO2.all$date<-as.Date(CO2.all$date)
+
+CO2.all$invlat=-1*CO2.all$lat
+CO2.all$stn=reorder(CO2.all$stn,CO2.all$invlat)
+
+CO2.all.loc <- rbind(CO2.ker[1,],CO2.ljo[1,],CO2.mlf[1,],CO2.ptb[1,],CO2.spo[1,])
+
+p1 <- qplot(date, co2, data=subset(CO2.all, flg < 2), colour=stn, geom="line",xlab="Year",ylab="CO2 (ppm)") + 
+		facet_wrap(~stn, ncol=1) + theme(axis.text.y=element_text(size = 6), legend.position="none")
+p2 <- qplot(date, co2, data=subset(CO2.all, flg < 2), colour=stn, geom="line",xlab="Year",ylab="CO2 (ppm)") + 
+  theme(axis.text.y=element_text(size = 6), legend.position="none")
+grid.arrange(p1, p2, ncol=2)
+```
+
+## 
+
+```{r CO2-locations, fig.width=10, fig.height=5, warning=FALSE, message=FALSE, echo=FALSE, cache=FALSE}
+ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order), colour=I("grey90"), size=0.1) + 
+  geom_point(data=CO2.all.loc, aes(x=lon, y=lat, group=1), colour="red", 
+                      size=2, alpha=0) +
+  geom_text(data=CO2.all.loc, aes(x=lon, y=lat, label=stn, group=1), 
+            colour="orange", size=5) +
+  coord_equal() + theme_map 
+```
+
+## What Do We Learn?
+
+- CO$_2$ is increasing, and it looks like it is exponential increase. **I really expected that the concentration would have flattened out with all of the efforts to reduce carbon emissions.**
+- The same trend is seen at every location - REALLY? Need some physics to understand this.
+- Some stations show seasonal pattern - actually the more north the more seasonality - WHY?
+
+## These Slides
+
+- This is a "live" document
+- Code and explanations together
+- Run the software to make the calculations on the data, and produce nice presentation, or Word or pdf or html document
+
+(Slides and material for this workshop can be found at [http://dicook.github.io/China-R](http://dicook.github.io/China-R).)
+
+Big thanks to [Xie Yihui, 谢益辉](http://yihui.name/cn/) for these tools!
+
+![](yihui.png)
+
+## Why R?
+
+**"R has become the most popular language for data science and an essential tool for Finance and analytics-driven companies such as Google, Facebook, and LinkedIn."** [Microsoft 2015](http://www.revolutionanalytics.com/what-r)
+
+
+## R is ...
+
+* __Free__ to use
+* __Extensible__ Over 7300 user contributed add-on packages currently on `CRAN`! More than 10000 on `github.com`
+* __Powerful__ With the right tools, get more work done, faster.
+* __Flexible__ Not a question of _can_, but _how_.
+* __Frustrating__ Flexibility comes at a cost 
+
+```{r, eval = FALSE, echo = FALSE}
+# devtools::install_github("metacran/crandb")
+# pkgs <- crandb::list_packages(limit = 999999)
+# length(pkgs)
+# [1] 7330
+```
+
+## R does ...
+
+* __Graphics, statistics, machine learning, etc.__
+* __Data acquisition, munging, management__
+* __Literate programming (dynamic reports)__
+* __Web applications__
+
+## RStudio is ...
+
+[From Julie Lowndes](http://jules32.github.io/resources/RStudio_intro/):
+
+*If R were an airplane, RStudio would be the airport, providing many, many supporting services that make it easier for you, the pilot, to take off and go to awesome places. Sure, you can fly an airplane without an airport, but having those runways and supporting infrastructure is a game-changer.*
+
+## The RStudio IDE
+
+- Source editor: (1) Docking station for multiple files, (2) Useful shortcuts ("Knit"),     (3) Highlighting/Tab-completion, (4) Code-checking (R, HTML, JS), (5) Debugging features
+-  Console window: (1) Highlighting/Tab-completion, (2) Search recent commands
+- Other tabs/panes:  (1) Graphics,  (2) R documentation, (3) Environment pane,   (4) File system navigation/access,  (5) Tools for package development, git, etc
+
+## Data Analysis Cycle
+
+![](data-science.png)
+
+(Diagram from [Hadley Wickham](https://github.com/rstudio/RStartHere))
+
+## Get Started
+
+- Want to work along with me?
+- Create a project for this workshop, start a new `.Rmd` log book to contain your work
+- Tackle the YOUR TURNs alone or with a partner
+
+## Create a Project
+
+Create a project to contain all of the material covered in this set of tutorials:
+
+* File -> New Project -> New Directory -> Empty Project
+
+![](createproject.png) 
+
+## Hello R Markdown!
+
+* File -> New File -> R Markdown -> OK -> Knit HTML
+
+![](rmarkdown.png)
+
+## What is R Markdown?
+
+- From the [R Markdown home page](http://rmarkdown.rstudio.com/):
+
+R Markdown is an authoring format that enables easy creation of dynamic documents, presentations, and reports from R. It combines the core syntax of __markdown__ (an easy-to-write plain text format) __with embedded R code chunks__ that are run so their output can be included in the final document. R Markdown documents are fully reproducible (they can be automatically regenerated whenever underlying R code or data changes).
+
+- RStudio's [cheatsheet](https://www.rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf) gives a nice, concise overview of its capabilities.
+
+- RStudio's [reference guide](https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf) lists its options.
+
+## Getting data
+
+Data can be found in R packages
+
+```{r}
+data(economics, package = "ggplot2")
+# data frames are essentially a list of vectors
+str(economics)
+```
+
+These are not usually kept up to date but are good for practicing your analysis skills on.
+
+## Getting Data
+
+Or in their own packages
+
+```{r}
+library(gapminder)
+str(gapminder)
+```
+
+More contemporary sets here, but not updated frequently.
+
+## Getting Data
+
+I primarily use the `readr` package for reading data now. It mimics the base R reading functions but is implemented in `C` so reads large files quickly, and it also attempts to identify the types of variables.
+
+```{r}
+ped <- read_csv("../data/Pedestrian_Counts.csv")
+kable(head(ped))
+```
+
+Pulling data together yourself, or compiled by someone else.
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Look at the document `economics` data in the `ggplot2` package. Can you think of questions you could answer using these variables?
+
+- Write these into your `.Rmd` file. 
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Read the documentation for `gapminder` data. Can you think of questions you could answer using these variables?
+
+- Write these into your `.Rmd` file. 
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Read the documentation for `pedestrian sensor` data. Can you think of questions you could answer using these variables?
+
+- Write these into your `.Rmd` file. 
+
+## Some Basics
+
+* _Assign_ values to a name with `<-` is called _gets_
+* 
+* `n_max=50` option to the `read_csv` function reads just the first 50 lines
+* `dim` reports the dimensions of the data matrix
+* `colnames` shows the column names (you can see these by looking at the object in the RStudio environment window, too)
+* `$` specify the column to use
+* `typeof` indicates the information format in the column, what R thinks
+* complex variable names containing spaces, etc, can be used, as long as they are wrapped in single quotes <pre>workers$`Claim Type`</pre>
+
+## Data Types
+
+* `list`'s are heterogeneous (elements can have different types)
+* `data.frame`'s are heterogeneous but elements have same length
+* `vector`'s and `matrix`'s are homogeneous (elements have the same type), which would be why `c(1, "2")` ends up being a character string.
+*
+* `function`'s can be written to save repeating code again and again    
+
+* If you'd like to know more, see Hadley Wickham's online chapters on [data structures](http://adv-r.had.co.nz/Data-structures.html) and [subsetting](http://adv-r.had.co.nz/Subsetting.html)
+
+## Operations
+
+* Use built-in _vectorized_ functions to avoid loops
+
+```{r}
+set.seed(1000)
+x <- rnorm(6)
+x
+sum(x + 10)
+```
+
+* `R` has rich support for documentation, see `?sum`
+
+##
+
+* Use `[` to extract elements of a vector.
+
+```{r}
+x[1]
+x[c(T, F, T, T, F, F)]
+```
+
+##
+
+* Extract _named_ elements with `$`, `[[`, and/or `[`
+
+```{r}
+x <- list(
+  a = 10,
+  b = c(1, "2")
+)
+x$a
+x[["a"]]
+x["a"]
+```
+
+## Examining 'structure'
+
+* `str()` is a very useful `R` function. It shows you the "structure" of (almost) _any_ R object (and _everything_ in R is an object!!!)
+
+```{r}
+str(x)
+```
+
+## Missing Values
+
+* `NA` is the indicator of a missing value in R
+* Most functions have options for handling missings
+
+```{r}
+x <- c(50, 12, NA, 20)
+mean(x)
+mean(x, na.rm=TRUE)
+```
+
+## Counting Categories
+
+* the `table` function can be used to tabulate numbers
+
+```{r}
+table(ped$Sensor_Name)
+```
+
+## Some Oddities
+
+* Yes, `+` is a function (which calls compiled C code)
+
+```{r}
+`+`
+```
+
+* What's that? You don't like addition? Me neither!
+
+```{r}
+"+" <- function(x, y) "I forgot how to add"
+1 + 2
+```
+
+* But seriously, don't "overload operators" unless you know what you're doing
+
+```{r}
+rm("+")
+```
+
+## Getting Help on the Web
+
+* Reading documentation only gets you so far. What about _finding_ function(s) and/or package(s) to help solve a problem???
+
+* Google! (I usually prefix "CRAN" to my search; others might suggest [http://www.rseek.org/](http://www.rseek.org/)
+
+* Ask your question on a relevant StackExchange outlet such as  [http://stackoverflow.com/](http://stackoverflow.com/) or [http://stats.stackexchange.com/](http://stats.stackexchange.com/)
+
+* It's becoming more and more popular to bundle "vignettes" with a package (__dplyr__ has _awesome_ vignettes)
+
+```{r, eval = FALSE}
+browseVignettes("dplyr")
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+1. Read in the OECD PISA data
+2. Tabulate the countries (CNT)
+3. Extract the values for Australia (AUS) and Shanghai (QCN)
+4. Compute the average and standard deviation of the reading scores (PV1READ), for each country
+
+```{r eval=FALSE, echo=FALSE}
+student2012.sub <- readRDS("data/student_sub.rds")
+table(student2012.sub$CNT)
+australia <- student2012.sub[student2012.sub$CNT=="AUS",]
+shanghai <- student2012.sub[student2012.sub$CNT=="QCN",]
+mean(australia$PV1READ)
+sd(australia$PV1READ)
+mean(shanghai$PV1READ)
+sd(shanghai$PV1READ)
+```
+
+## Australian Election Data
+
+This is a current project (joint with Ben Marwick, Rob Hyndman, Heike Hofmann, Carson Sievert, Nathaniel Tomasetti). Code and data are provided to study the electoral maps and system.
+
+- Spatial boundaries of electorates
+- Results of the 2013 elections
+- 2010 Census data aggregated to electorate level
+
+There is a shiny app that facilitates interactive exploration of the data.
+
+##
+
+<iframe src="https://player.vimeo.com/video/167367369" width="640" height="531" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe> <p><a href="https://vimeo.com/167367369">Exploring the Australian electorate</a> from <a href="https://vimeo.com/user14048736">Di Cook</a> on <a href="https://vimeo.com">Vimeo</a>.</p>
+
+## Next session
+
+- Wrangling your data into shape
+- Basic plotting of data
+
+## Credits
+
+Notes prepared by Di Cook, building on joint workshops with Carson Sievert, Heike Hofmann, Eric Hare, Hadley Wickham.
+
+![](carson2.jpg) ![](heike.jpg) ![](eric.jpg) ![](hadley.jpg)
+
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.

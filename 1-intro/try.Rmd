@@ -1,0 +1,56 @@
+---
+title: "Introduction Exploring Data with R"
+author: "Professor Di Cook, Econometrics and Business Statistics, Monash University"
+date: "Beijing, China - May 26-28, 2016"
+output:
+  ioslides_presentation
+css:
+  my_css.css
+---
+
+## Outline
+
+<div><span>
+<i class="starfish2.png"></i> Session 1: Motivation, why and how to think about data, and getting started with R    
+<i class="starfish2.png"></i> Session 2: Making basic plots, grammar of graphics, good practices   
+<i class="starfish2.png"></i> Session 3: Advanced graphics, layering, using maps   
+</div></span>
+
+```{r setup, include = FALSE}
+library("knitr")
+opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  cache = FALSE,
+  fig.height = 2,
+  fig.width = 5,
+  fig.caption = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+options(digits=2)
+library("rmarkdown")
+library("devtools")
+library("readr")
+library("tidyr")
+library("ggplot2")
+library("ggthemes")
+library("gridExtra")
+library("dplyr")
+library("lubridate")
+library("GGally")
+library("rworldmap")
+library("ggmap")
+library("scales")
+library("dichromat")
+library("RColorBrewer")
+library("viridis")
+library("purrr")
+library("broom")
+library("timeDate")
+library("haven")
+library("boot")
+library("plotly")
+```
+
