@@ -1,0 +1,1034 @@
+---
+title: "Introduction Exploring Data with R"
+author: "Professor Di Cook, Econometrics and Business Statistics, Monash University"
+date: "Beijing, China - May 24-26, 2016"
+output:
+  ioslides_presentation
+css:
+  my_css.css
+---
+
+## Outline
+
+- Session 1: Motivation, why and how to think about data, and getting started with R
+- <font color="#7c8a1a"> Session 2: Making basic plots, grammar of graphics, good practices</font>
+- Session 3: Advanced graphics, layering, using maps
+
+```{r setup, include = FALSE}
+library("knitr")
+opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  cache = FALSE,
+  fig.height = 2,
+  fig.width = 5,
+  fig.caption = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+options(digits=2)
+library("rmarkdown")
+library("devtools")
+library("readr")
+library("tidyr")
+library("ggplot2")
+library("ggthemes")
+library("gridExtra")
+library("dplyr")
+library("lubridate")
+library("GGally")
+library("rworldmap")
+library("ggmap")
+library("scales")
+library("dichromat")
+library("RColorBrewer")
+library("viridis")
+library("purrr")
+library("broom")
+library("timeDate")
+library("haven")
+library("boot")
+library("plotly")
+```
+
+(If you re-started RStudio, be sure to re-open your project too.)
+
+## Using the Packages `tidyr`, `dplyr`
+
+- Writing readable code using **pipes**
+- What is **tidy data**? Why do you want tidy data? Getting your data into tidy form using tidyr.
+- **Summarise, mutate, filter, select, arrange** with dplyr
+- Reading different **data formats**
+- String operations, working with **text**
+- Re-structuring **time** variables
+- Computing on **lists** with purrr (not covered)
+- Handling **missing values** (not covered)
+
+## Pipes <pre>%>%</pre>
+
+Pipes allow the code to be read like a sequence of operations
+
+```{r}
+student2012.sub <- readRDS("../data/student_sub.rds")
+# table(student2012.sub$CNT)
+student2012.sub %>% group_by(CNT) %>% tally()
+```
+
+## Example Data 1
+
+What are the variables?
+
+```{r echo=FALSE}
+grad <- read_csv("../data/graduate-programs.csv")
+kable(head(grad[c(2,3,4,6)]))
+```
+
+## Example Data 2
+
+What's in the column names of this data? What are the experimental units? What are the measured variables?
+
+```{r, echo=FALSE}
+genes <- read_csv("../data/genes.csv")
+kable(genes)
+```
+
+## Example Data 3
+
+What are the variables? What are the records?
+
+```{r}
+melbtemp <- read.fwf("../data/ASN00086282.dly", 
+   c(11, 4, 2, 4, rep(c(5, 1, 1, 1), 31)), fill=T)
+kable(head(melbtemp[,c(1,2,3,4,seq(5,128,4))]))
+```
+
+## Example Data 4
+
+What are the variables? What are the experimental units?
+
+```{r}
+tb <- read_csv("../data/tb.csv")
+#tail(tb)
+colnames(tb)
+```
+
+## Example Data 5 
+
+What are the variables? What are the experimental units?
+
+```{r}
+pew <- read.delim(
+  file = "http://stat405.had.co.nz/data/pew.txt",
+  header = TRUE,
+  stringsAsFactors = FALSE,
+  check.names = F
+)
+kable(pew[1:5, 1:5])
+```
+
+## Example Data 6
+
+10 week sensory experiment, 12 individuals assessed taste of french fries on several scales (how potato-y, buttery, grassy, rancid, paint-y do they taste?), fried in one of 3 different oils, replicated twice. First few rows:
+
+```{r, echo = FALSE}
+data(french_fries, package = "reshape2")
+kable(head(french_fries, 4), format = "markdown", row.names = F)
+```
+
+What is the experimental unit? What are the factors of the experiment? What was measured? What do you want to know?
+
+## Messy Data Patterns
+
+There are various features of messy data that one can observe in practice. Here are some of the more commonly observed patterns.
+
+- Column headers are values, not variable names
+- Variables are stored in both rows and columns, contingency table format
+- One type of experimental unit stored in multiple tables
+- Dates in many different formats
+
+## What is Tidy Data?
+
+- Each observation forms a row
+- Each variable forms a column
+- Contained in a single table
+- Long form makes it easier to reshape in many different ways
+- Wide form is common for analysis
+
+## Tidy Data {.flexbox .vcenter #myImagePage1}
+
+![](lego.pdf)
+
+## Messy Data {.flexbox .vcenter #myImagePage1}
+
+![](playmobile.pdf)
+
+## Tidy Verbs
+
+- **gather**: specify the **keys** (identifiers) and the **values** (measures) to make long form (used to be called melting)
+- **spread**: variables in columns (used to be called casting)
+- nest/unnest: working with lists
+- separate/unite: split and combine columns
+
+## French Fries 
+
+10 week sensory experiment, 12 individuals assessed taste of french fries on several scales (how potato-y, buttery, grassy, rancid, paint-y do they taste?), fried in one of 3 different oils, replicated twice. First few rows:
+
+```{r, echo=FALSE, results='asis'}
+kable(head(french_fries), format = "markdown", row.names = FALSE)
+```
+
+## What Would We Like to Know?
+
+- Is the design complete?
+- Are replicates like each other?
+- How do the ratings on the different scales differ?
+- Are raters giving different scores on average?
+- Do ratings change over the weeks?
+
+Each of these questions involves different summaries of the data.
+
+## Gathering
+
+- When gathering, you need to specify the **keys** (identifiers) and the **values** (measures).
+
+Keys/Identifiers:
+- Identify a record (must be unique)
+- Example: Indices on an random variable
+- Fixed by design of experiment (known in advance)
+- May be single or composite (may have one or more variables)
+
+Values/Measures:
+- Collected during the experiment (not known in advance)
+- Usually numeric quantities
+
+## Gathering the French Fries
+
+```{r}
+ff_long <- gather(french_fries, key = variable, value = 
+                    rating, potato:painty)
+head(ff_long)
+```
+
+## Long to Wide
+
+In certain applications, we may wish to take a long dataset and convert it to a wide dataset (perhaps displaying in a table).
+
+This is called "spreading" the data.
+
+## Spread
+
+We use the **spread** function from tidyr to do this:
+
+```{r}
+french_fries_wide <- spread(ff_long, key = variable, 
+                            value = rating)
+
+head(french_fries_wide)
+```
+
+## Answer some Questions
+
+- Easiest question to start is whether the ratings are similar on the different scales, potato'y, buttery, grassy, rancid and painty. 
+
+- We need to gather the data into long form, and make plots facetted by the scale. 
+
+## Ratings on the Different Scales
+
+```{r}
+ff.m <- french_fries %>% 
+  gather(type, rating, -subject, -time, -treatment, -rep)
+head(ff.m)
+```
+
+##
+
+```{r, fig.height=2, fig.width=8}
+ggplot(data=ff.m, aes(x=rating)) + geom_histogram(binwidth=2) + 
+  facet_wrap(~type, ncol=5) 
+```
+
+## Side-By-Side Boxplots
+
+```{r fig.width=8, fig.height=5}
+ggplot(data=ff.m, aes(x=type, y=rating, fill=type)) + 
+  geom_boxplot()
+```
+
+
+## Do the Replicates Look Like Each Other?
+
+We will start to tackle this by plotting the replicates against each other using a scatterplot. 
+
+We need to gather the data into long form, and then get the replicates spread into separate columns. 
+
+## Check Replicates
+
+```{r}
+head(ff.m)
+ff.s <- ff.m %>% spread(rep, rating)
+head(ff.s)
+```
+
+## Check Replicates
+
+```{r, fig.show='hold', fig.align='default', fig.height=4, fig.width=4}
+ggplot(data=ff.s, aes(x=`1`, y=`2`)) + geom_point() +
+  theme(aspect.ratio=1) + xlab("Rep 1") + ylab("Rep 2")
+ggplot(data=ff.s, aes(x=`1`, y=`2`)) + geom_point() +
+  theme(aspect.ratio=1) + xlab("Rep 1") + ylab("Rep 2") + 
+  scale_x_sqrt() + scale_y_sqrt()
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+Make the scatterplots of reps against each other separately for scales, and treatment. 
+
+```{r, echo=FALSE, eval=FALSE}
+ggplot(data=ff.s, aes(x=`1`, y=`2`)) + geom_point() +
+  theme(aspect.ratio=1) + 
+  xlab("Rep 1") + ylab("Rep 2") + facet_wrap(~type, ncol=5)
+ggplot(data=ff.s, aes(x=`1`, y=`2`)) + geom_point() +
+  theme(aspect.ratio=1) + 
+  xlab("Rep 1") + ylab("Rep 2") + facet_grid(treatment~type)
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+Read in the billboard top 100 music data, which contains N'Sync and Backstreet Boys songs that entered the billboard charts in the year 2000
+
+```{r}
+billboard <- read.csv("../data/billboard.csv")
+```
+
+What's in this data? What's X1-X76?
+
+## Your Turn
+
+![](lorikeets.png)
+
+1. Use `tidyr` to convert this data into a long format appropriate for plotting a time series (date on the x axis, chart position on the y axis)
+2. Use `ggplot2` to create this time series plot:
+
+```{r, echo=FALSE, fig.height=3}
+long_billboard <- gather(billboard, key = week, value = rank, X1:X76)
+long_billboard$week <- as.numeric(gsub("X", "", long_billboard$week))
+
+ggplot(data = long_billboard, aes(x=week, y=rank, colour = artist, group = track)) + geom_line() + theme(legend.position="bottom")
+```
+
+## `dplyr` Verbs
+ 
+The package dplyr helps to make various summaries of the data. There are five primary dplyr **verbs**, representing distinct data analysis tasks:
+
+- **Filter**: Remove the rows of a data frame, producing subsets
+- **Arrange**: Reorder the rows of a data frame
+- **Select**: Select particular columns of a data frame
+- **Mutate**: Add new columns that are functions of existing columns
+- **Summarise**: Create collapsed summaries of a data frame
+
+## The Split-Apply-Combine Approach
+
+![](split-apply-combine.png)
+
+(Diagram originally from Hadley Wickham)
+
+## Split-Apply-Combine in `dplyr`
+
+```{r}
+french_fries_split <- group_by(ff_long, variable) # SPLIT
+french_fries_apply <- summarise(french_fries_split, 
+     rating = mean(rating, na.rm = TRUE)) # APPLY + COMBINE
+french_fries_apply
+```
+    
+## Filter
+
+```{r}
+french_fries %>%
+    filter(subject == 3, time == 1)
+```
+
+## Arrange
+
+```{r}
+french_fries %>%
+    arrange(desc(rancid)) %>%
+    head
+```
+
+## Select
+
+```{r}
+french_fries %>%
+    select(time, treatment, subject, rep, potato) %>%
+    head
+```
+
+## Summarise
+
+```{r}
+french_fries %>%
+    group_by(time, treatment) %>%
+    summarise(mean_rancid = mean(rancid), 
+              sd_rancid = sd(rancid))
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Use summarise to compute the mean science score for each country in the OECD PISA data
+
+## String Manipulation
+
+When the experimental design is packed into column names, we need to extract it, and tidy it up. 
+
+```{r}
+genes <- read_csv("../data/genes.csv")
+kable(head(genes))
+```
+
+## Gather Column Names into Long Form
+
+```{r}
+gather(genes, variable, expr, -id) %>% kable
+```
+
+## Separate Columns
+
+```{r}
+genes %>%
+  gather(variable, expr, -id) %>%
+  separate(variable, c("trt", "leftover"), "-") %>%
+  kable
+```
+
+##
+
+```{r}
+genes %>%
+  gather(variable, expr, -id) %>%
+  separate(variable, c("trt", "leftover"), "-") %>%
+  separate(leftover, c("time", "rep"), "\\.") %>% kable
+```
+
+##
+
+```{r}
+gtidy <- genes %>%
+  gather(variable, expr, -id) %>%
+  separate(variable, c("trt", "leftover"), "-") %>%
+  separate(leftover, c("time", "rep"), "\\.") %>%
+  mutate(trt = sub("W", "", trt)) %>%
+  mutate(rep = sub("R", "", rep))
+kable(head(gtidy))
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+(1) Using the tidied dataset (`gtidy`), find the mean expression for each combination of id, trt, and time.
+(2) Use this tidied data to make this plot.
+
+```{r, echo=FALSE, fig.height=3}
+gmean <- gtidy %>% 
+  group_by(id, trt, time) %>% 
+  summarise(expr = mean(expr))
+ggplot(data = gtidy, aes(trt, expr, colour = time)) + 
+         geom_point() + 
+  xlab("Type of modification") + ylab("Expression") + 
+  facet_wrap(~id) +
+  geom_line(data = gmean, aes(group = time))
+```
+
+## Re-structuring the Temperature Data
+
+```{r}
+melbtemp.m <- melbtemp %>%
+  select(num_range("V", c(1,2,3,4,seq(5,128,4)))) %>%
+  filter(V4 %in% c("PRCP", "TMAX", "TMIN")) %>%
+  gather(day, value, V5:V125, na.rm = TRUE) %>%
+  spread(V4, value) %>%
+  mutate(
+    tmin = as.numeric(TMIN) / 10,
+    tmax = as.numeric(TMAX) / 10,
+    t_range = tmax - tmin,
+    prcp = as.numeric(PRCP) / 10
+  ) %>%
+  rename(stn=V1, year=V2, month=V3)
+```
+
+##
+
+```{r}
+kable(head(melbtemp.m))
+```
+
+##
+
+```{r}
+melbtemp.m$day <- factor(melbtemp.m$day, 
+  levels=c("V5","V9","V13","V17","V21","V25","V29",
+           "V33","V37","V41","V45","V49","V53","V57",
+           "V61","V65","V69","V73","V77","V81","V85",
+           "V89","V93","V97","V101","V105","V109",
+           "V113","V117","V121","V125"),
+  labels=1:31)
+melbtemp.m$date <- as.Date(paste(melbtemp.m$day, 
+     melbtemp.m$month, melbtemp.m$year, sep="-"),
+     "%d-%m-%Y")
+```
+
+##
+
+```{r}
+kable(head(melbtemp.m))
+```
+
+## Re-structuring Tuberculosis Data
+
+```{r}
+tb_tidy <- tb %>%
+  gather(demographic, cases, m_04:f_u, na.rm = TRUE) %>%
+  separate(demographic, c("sex", "age"), "_") %>%
+  rename(country = iso2) %>%
+  arrange(country, year, sex, age) 
+kable(head(tb_tidy))
+```
+
+## Dates and Times
+
+Dates are deceptively hard to work with.
+
+**Example**: 02/05/2012. Is it February 5th, or May 2nd?
+
+Other things are difficult too:
+
+- Time zones
+- POSIXct format in base R is challenging
+
+The **lubridate**, and **timeDate** package helps tackle some of these issues.
+
+## Basic Lubridate Use
+
+```{r}
+now()
+today()
+now() + hours(4)
+today() - days(2)
+```
+
+## Parsing Dates
+
+```{r}
+ymd("2013-05-14")
+mdy("05/14/2013")
+dmy("14052013")
+ymd_hms("2013:05:14 14:5:30", tz = "Australia/Melbourne")
+```
+
+## Extracting Temporal Elements
+
+```{r}
+month(ymd("2013-05-14"))
+year(ymd("2013-05-14"))
+wday(ymd("2013-05-14"), label=TRUE, abbr=TRUE)
+isWeekday(ymd("2013-05-14"))
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+For the pedestrian sensor data, extract
+
+- year
+- month
+- day of the week
+
+from the date variable
+
+## Using the Package `ggplot2`
+
+Elements of a plot
+
+- data
+- aesthetics: mapping of variables to graphical elements
+- geom: type of plot structure to use
+- transformations: log scale, ...
+
+Additional components 
+
+- layers: multiple geoms, multiple data sets, annotation
+- facets: show subsets in different plots
+- themes: modifying style
+
+RStudio's **[cheatsheet](https://www.rstudio.com/wp-content/uploads/2015/03/ggplot2-cheatsheet.pdf)** gives a nice, concise overview of the plotting capabilities.
+
+## Data - Currency Cross Rates
+
+Extracted from [http://openexchangerates.org](http://openexchangerates.org), extracted using the json api, with the R package, jsonlite.
+
+```{r}
+rates <- read_csv("../data/rates.csv")
+rates[1:5,1:8]
+```
+
+If you'd like to collect exchange rates yourself, see [here](https://gist.github.com/cpsievert/e05da83fc4253e6d1986).
+
+## Plotting Points
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=rates, aes(x=date, y=AUD)) + geom_point()
+```
+
+## Data Structure
+
+- Plots are constructed by mapping elements of data to graphical attributes. 
+- Having data in a tidy structure make mapping clearer
+- Some ways of making mappings make it easier for the reader to perceive structure better
+
+## Plot Structure
+
+- data: rates 
+- aesthetics: x=date, y=AUD
+- geom: point, line
+
+
+## Plotting Lines
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=rates, aes(x=date, y=AUD)) + geom_line()
+```
+
+## Points and Lines
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=rates, aes(x=date, y=AUD)) + 
+  geom_line() + geom_point()
+```
+
+## Multiple Currencies
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=rates, aes(x=date, y=AUD)) + geom_line() +
+  geom_line(aes(y=NZD), colour="blue") + 
+  geom_line(aes(y=GBP), colour="red")
+```
+
+## Hmmm...
+
+- That code is clunky!
+- Better to rearrange data, and then let ggplot2 handle the colors, legends, ...
+
+## Better Way
+
+```{r fig.width=8, fig.height=4}
+rates.sub <- select(rates, date, AUD, NZD, GBP)
+rates.sub.m <- gather(rates.sub, currency, rate, -date)
+ggplot(data=rates.sub.m, aes(x=date, y=rate, colour=currency)) + 
+  geom_line() 
+```
+
+## GRAMMAR
+
+- The grammar of graphics makes the mapping of a data variable to a plot element explicit. 
+- This is a huge advance in data visualisation
+- This provides a closer connection between data, plots and models.
+
+## Mappings
+
+- Date is mapped to position along the x axis
+- Rate is mapped to position along the y axis
+- Currency is mapped to colour
+
+## Information Communication
+
+```{r fig.width=6, fig.height=3}
+ggplot(data=rates.sub.m, aes(x=date, y=rate, colour=currency)) + 
+  geom_line() 
+```
+
+>- What can you read from this plot? What is the main observation?
+>- The cross-rates for AUD and NZD with the USD are similar, $1USD can buy approximately $1.30 of both, but the GBP is lower, and $1USD only buys 2/3 of a GBP. Do we need a plot to know this?
+
+## Communicate Trend: Scale Currencies
+
+```{r fig.width=8, fig.height=4}
+rates.sub <- mutate(rates.sub, AUD=scale(AUD), NZD=scale(NZD), 
+                    GBP=scale(GBP))
+rates.sub$date <- as.Date(rates.sub$date)
+rates.sub.m <- gather(rates.sub, currency, rate, -date)
+```
+
+##
+
+```{r fig.width=6, fig.height=3}
+ggplot(data=rates.sub.m, aes(x=date, y=rate, colour=currency)) +
+         geom_line()
+```
+
+- Now you can read off the trend: the AUD and NZD trend similarly in this time period, but the GBP is different. The GBP goes down in cross-rate, as the AUD/NZD go up.
+
+## Your Turn
+
+![](lorikeets.png)
+
+In the plot below, how are variables mapped to plot elements?
+
+```{r echo=FALSE, fig.align='center', fig.width=6, fig.height=3}
+ggplot(data=rates.sub, aes(x=AUD, y=NZD, colour=date)) + geom_path() + theme(aspect.ratio=1)
+```
+
+```{r echo=FALSE, eval=FALSE}
+AUD rate is mapped to position along the x axis
+NZD rate is mapped to position along the y axis
+first differences are mapped to lines
+date is mapped to colour of line, date at beginning of line
+```
+
+## Adding Marginal Rug Plot
+
+```{r fig.align='center', fig.width=8, fig.height=4}
+ggplot(data=rates.sub, aes(x=AUD, y=NZD)) + 
+  geom_point(alpha=0.2) + geom_rug(colour="red", alpha=0.3) + 
+  theme(aspect.ratio=1)
+```
+
+## Other Types of Plots
+
+- bar charts, pie charts
+- boxplots, violins, 
+- histograms
+- density plots
+- dotplots
+
+Look up `?geom_histogram` and choose the index for the ggplot2 package. Look at the `geom_` options. There are many! We will only cover the few main ones.
+
+## Type of Variables Suggests Mapping
+
+1. The values of **quantitative** variables should be mapped to **position along a line**, e.g. histogram, scatterplot. Mapping them to colour will yield only rough return of information to the reader. 
+2. Categorical variables could be mapped to 
+  - colour, if there are few categories,  
+  - aggregated and mapped to position along the line, 
+  - mapped to angle, if all categories are available.
+3. Order is important, and if no natural order available then impose one e.g. using count
+
+## Categorical Variables - Barchart
+
+The social variables of the PISA data include internet usage. This is a subset.
+
+```{r}
+internet <- read_csv("../data/internet.csv")
+dim(internet)
+colnames(internet)
+```
+
+## Categorical Variables - Barchart
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=internet, aes(x=`Social networks`)) + 
+  geom_bar(binwidth=0.5) 
+```
+
+## Categorical Variables - Barchart
+
+Simpson's paradox may be in play when there are multiple categorical variables. Need to divide it into basic elements. 
+
+```{r fig.width=6, fig.height=3}
+ggplot(data=internet, aes(x=`Social networks`)) + 
+  geom_bar(binwidth=0.5) +
+  facet_grid(Gender~name)
+```
+
+## Categorical Variables - Stacked Barchart
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=internet, aes(x=`Social networks`, fill=Gender)) + 
+  geom_bar(binwidth=0.5) +
+  facet_wrap(~name, ncol=5) + theme(legend.position="bottom")
+```
+
+## Categorical Variables - Dodged Bars 
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=internet) + 
+  geom_bar(aes(x=`Social networks`, fill=Gender),
+          position="dodge") +
+  facet_wrap(~name, ncol=5) + 
+  theme(legend.position="bottom")
+```
+
+## Categorical Variables - Piechart
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=internet, aes(x=factor(1), fill=factor(`Social networks`))) + 
+  geom_bar(width = 1) + scale_x_discrete("") +
+  scale_y_continuous("") +
+  scale_fill_hue("Social Network Use") +
+  coord_polar(theta = "y")
+```
+
+Yes, its deliberately made hard to do !
+
+## Quantitative and Categorical - Boxplots
+
+Data are measurements from the National Research Council in the USA, evaluating graduate programs in Statistics. 
+
+```{r}
+grad <- read_csv("../data/graduate-programs.csv")
+dim(grad)
+colnames(grad)
+```
+
+##
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=grad, aes(x=subject, y=AvGREs)) + 
+  geom_boxplot()
+```
+
+##
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=grad, aes(x=subject, y=AvGREs)) + 
+  geom_violin()
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Create a side-by-side boxplot of average number of publications by program
+- Then answer, "how do the four programs compare in terms of average number of publications?" 
+
+## Cognitive Principles
+
+- **Hierarchy of mappings**: (first) position along an axis - (last) color (Cleveland, 1984; Heer and Bostock, 2009)
+- **Pre-attentive**: Some elements like color are noticed before you even realise it. Other elements like axes are to look up information later.
+- **Color palettes**: qualitative, sequential, diverging. The type of variable determines the appropriate palette.
+- **Color blindness**: you can proof your plots with te dichromat package.
+- **Proximity**: To compare elements, place them close together. 
+- **Change blindness**: When focus is interrupted differences may not be noticed, can occur when you are reading across multiple plots.
+
+## Hierarchy of Mappings
+
+1. Position - common scale (BEST)
+2. Position - nonaligned scale
+3. Length, direction, angle
+4. Area
+5. Volume, curvature
+6. Shading, color (WORST)
+
+## Pre-attentive
+
+Can you find the odd one out?
+
+```{r echo=FALSE, fig.width=5, fig.height=5, fig.align='center'}
+df <- data.frame(x=runif(100), y=runif(100), cl=sample(c(rep("A", 1), rep("B", 99))))
+qplot(x, y, data=df, shape=cl) + theme_bw() + theme(legend.position="None", aspect.ratio=1)
+```
+
+##
+
+Is it easier now?
+
+```{r echo=FALSE,  fig.width=5, fig.height=5, fig.align='center'}
+qplot(x, y, data=df, colour=cl) + theme_bw() + theme(legend.position="None", aspect.ratio=1)
+```
+
+
+## Color Palettes
+
+- Qualitative: categorical variables
+- Sequential: low to high numeric values
+- Diverging: negative to positive values
+
+##
+
+```{r, echo=FALSE, fig.height=7, fig.width=10}
+display.brewer.all()
+```
+
+## Scales
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=internet, aes(x=`Social networks`, fill=Gender)) + 
+  geom_bar(position="dodge") +
+  scale_fill_manual(values=c("Female"="orange", "Male"="darkgreen")) + 
+  facet_wrap(~name, ncol=5) + 
+  theme(legend.position="bottom")
+```
+
+## Scales
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=grad, aes(x=subject, y=AvGREs)) + 
+  geom_boxplot() + scale_y_log10()
+```
+
+## Axes
+
+The date time axis is a little trickier to re-organise, but it can be done.
+
+```{r fig.width=6, fig.height=3}
+rates.sub.m$date <- as.POSIXct(rates.sub.m$date)
+ggplot(data=rates.sub.m, aes(x=date, y=rate, 
+  colour=currency)) + geom_line() + 
+  scale_x_datetime(breaks = date_breaks("1 month"), 
+                   labels = date_format("%b"))
+```
+
+##
+
+```{r fig.width=8, fig.height=4}
+ggplot(data=rates.sub.m, aes(x=date, y=rate, 
+        colour=currency)) + geom_line() +
+  xlab("Date") + ylab("Standardized rates") + 
+  ggtitle("Cross rates 23/2/2015-11/11/2015")
+```
+
+## Equations in Labels
+
+```{r fig.width=6, fig.height=3}
+ggplot(data=rates.sub.m, aes(x=date, y=rate, colour=currency)) +
+  geom_line() +
+  xlab(expression(Date[i]^2~ mu ~ pi * sigma)) + 
+  ylab("Standardized rates") + 
+  ggtitle("Cross rates 23/2/2015-11/11/2015")
+```
+
+##
+
+Save the plot to an R object,`p`
+
+```{r}
+p <- ggplot(data=rates.sub.m, aes(x=date, y=rate, 
+  colour=currency)) + geom_line() + 
+  scale_x_datetime(breaks = date_breaks("1 month"), 
+                   labels = date_format("%b"))
+```
+
+## Legend Position
+
+```{r fig.width=8, fig.height=4}
+p + theme(legend.position = "bottom")
+```
+
+
+## Themes
+
+```{r  fig.width=8, fig.height=4}
+p + theme_tufte()
+```
+
+##
+
+```{r  fig.width=8, fig.height=4}
+p + theme_economist()
+```
+
+## Color Palettes
+
+```{r fig.width=8, fig.height=4}
+p + scale_color_brewer("", palette = "Dark2")
+```
+
+## Color Blind-proofing
+
+```{r fig.width=8, fig.height=4, fig.show='hold', fig.align='default',}
+clrs <- hue_pal()(3)
+p + scale_color_manual("", values=clrs) + 
+  theme(legend.position = "none")
+```
+
+##
+
+```{r fig.width=8, fig.height=4, fig.show='hold', fig.align='default',}
+clrs <- dichromat(hue_pal()(3))
+p + scale_color_manual("", values=clrs) + 
+  theme(legend.position = "none")
+```
+
+##
+
+```{r fig.width=8, fig.height=4, fig.show='hold', fig.align='default',}
+clrs <- brewer.pal(3, "Dark2")
+p + scale_color_manual("", values=clrs) + 
+  theme(legend.position = "none")
+```
+
+##
+
+```{r fig.width=8, fig.height=4, fig.show='hold', fig.align='default',}
+clrs <- dichromat(brewer.pal(3, "Dark2"))
+p + scale_color_manual("", values=clrs) + 
+  theme(legend.position = "none")
+```
+
+## Your Turn
+
+Proximity - From with plot can you answer: Is the proportion of girls who use social networks every day (4) higher than boys, in Australia? And is this different in Germany?
+
+```{r, echo=FALSE,  fig.width=8, fig.height=4}
+ggplot(data=internet, aes(x=`Social networks`)) + 
+         geom_bar() + 
+  facet_grid(Gender~name)
+```
+
+
+```{r echo=FALSE, fig.show='hide'}
+internet.m.tb <- internet[,c(1,3,8)] %>%
+                     group_by(name, Gender, `Social networks`) %>% 
+                     tally(sort=TRUE) 
+internet.m.tb <- subset(internet.m.tb, !is.na(`Social networks`))
+internet.m.tb.n <- summarise(group_by(internet.m.tb, name, Gender), tot=sum(n)) 
+internet.m.tb <- merge(internet.m.tb, internet.m.tb.n)
+internet.m.tb.p <- summarise(group_by(internet.m.tb, name, Gender, `Social networks`), p=n/tot)
+```
+
+```{r, echo=FALSE, fig.show='hide'}
+ggplot(data=internet.m.tb.p, aes(x=`Social networks`, y=p, color=Gender)) +
+  geom_line() + 
+  facet_wrap(~name, ncol=5) + theme(legend.position="bottom")
+```
+
+## Your Turn
+
+![](lorikeets.png)
+
+- Brainstorm with your neighbour ways to rearrange this plot to answer the question. 
+
+- Then tackle this question: Are German girls more likely to report using social networks once or twice per month (1) than Japanese girls?
+
+- What ways would you re-arrange the plot to tackle this one?
+
+
+```{r, echo=FALSE, fig.show='hide'}
+ggplot(data=internet.m.tb.p, aes(x=`Social networks`, y=p, color=name)) + 
+  geom_line() + 
+  facet_wrap(~Gender, ncol=2) 
+```
+
+## Proximity
+
+- It is ok to make more than one plot. 
+- Actually it is recommended. 
+
+## Next
+
+Advanced graphics
+
+## Credits
+
+Notes prepared by Di Cook, building on joint workshops with Carson Sievert, Heike Hofmann, Eric Hare, Hadley Wickham.
+
+![](carson2.jpg) ![](heike.jpg) ![](eric.jpg) ![](hadley.jpg)
+
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
