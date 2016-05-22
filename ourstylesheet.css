@@ -119,7 +119,9 @@ a {
   -ms-transition: text-shadow 0.5s ease;
 }
 
-a:hover, a:focus {text-decoration: underline;}
+a:hover, a:focus {
+    color: #af710e;
+}
 
 footer a {
   color: #485a30;
@@ -271,8 +273,6 @@ Full-Width Styles
   right: 10px;
   z-index: 10;
   padding: 10px 50px 10px 10px;
-  color: #fff;
-  background: url('../images/blacktocat.png') #0090ff no-repeat 95% 50%;
   font-weight: 700;
   box-shadow: 0 0 10px rgba(0,0,0,.5);
   border-bottom-left-radius: 2px;
