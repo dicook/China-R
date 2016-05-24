@@ -410,9 +410,12 @@ CO2.all$stn=reorder(CO2.all$stn,CO2.all$invlat)
 
 CO2.all.loc <- rbind(CO2.ker[1,],CO2.ljo[1,],CO2.mlf[1,],CO2.ptb[1,],CO2.spo[1,])
 
-p1 <- qplot(date, co2, data=subset(CO2.all, flg < 2), colour=stn, geom="line",xlab="Year",ylab="CO2 (ppm)") + 
-		facet_wrap(~stn, ncol=1) + theme(axis.text.y=element_text(size = 6), legend.position="none")
-p2 <- qplot(date, co2, data=subset(CO2.all, flg < 2), colour=stn, geom="line",xlab="Year",ylab="CO2 (ppm)") + 
+p1 <- ggplot(data=subset(CO2.all, flg < 2), aes(x=date, y=co2, colour=stn)) +
+  geom_line() + xlab("Year") + ylab("CO2 (ppm)") + 
+		facet_wrap(~stn, ncol=1) + 
+  theme(axis.text.y=element_text(size = 6), legend.position="none")
+p2 <- ggplot(data=subset(CO2.all, flg < 2), aes(date, co2, colour=stn)) +
+  geom_line() + xlab("Year") + ylab("CO2 (ppm)") + 
   theme(axis.text.y=element_text(size = 6), legend.position="none")
 grid.arrange(p1, p2, ncol=2)
 ```

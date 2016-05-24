@@ -1,0 +1,52 @@
+---
+title: "Data Challenge"
+author: "Di Cook"
+date: "Beijing, China - May 24-26, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data
+
+The French Open tennis tournament started this week, and will continue until next week. A package available on github has compiled the player statistics for men's tennis over the past three years. 
+
+```{r tennisR, message = FALSE, warning = FALSE, error=FALSE}
+#library(devtools)
+#install_github("jzwolski/tennisR")
+library(tennisR)
+data(MatchStats)
+```
+
+Alternatively, you can use one of the data problems discussed in the workshop: economics, gapminder ot pedestrian sensor.
+
+## Task
+
+Using what you have learned about plotting data in this workshop, make a few pictures (2-5 plots) that tell us about players competing in this year's French Open tournament. 
+For each of your plots write a paragraph explaining what you have learned about men's tennis from the plots. 
+
+Here's an example:
+
+```{r stats, echo=FALSE, fig.width=10, fig.height=8, message = FALSE, warning = FALSE, error=FALSE}
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+kyrgios <- MatchStats %>% filter(year(Date) == 2015, Player == "Nick Kyrgios")
+kyrgios.m <- kyrgios %>% 
+  select(Surface, Winner, Aces_Diff, Double_Faults_Diff, First_Serve_Per_Diff, Second_Serve_Points_Won_Per_Diff, Total_Service_Points_Won_Per, Break_Points_Saved_Per_Diff, Break_Points_Converted_Per_Diff, Total_Return_Points_Won_Per_Diff, Total_Points_Won_Per_Diff) %>%
+  mutate(Win=ifelse(Winner=="Nick Kyrgios", "yes", "no")) %>%
+  gather(Statistic, value, -Surface, -Winner, -Win) 
+kyrgios.m$Statistic <- factor(kyrgios.m$Statistic, levels=c("Aces_Diff", "Double_Faults_Diff", "First_Serve_Per_Diff", "Second_Serve_Points_Won_Per_Diff", "Total_Service_Points_Won_Per", "Break_Points_Saved_Per_Diff", "Break_Points_Converted_Per_Diff", "Total_Return_Points_Won_Per_Diff", "Total_Points_Won_Per_Diff"))
+kyrgios.m %>% ggplot(aes(x=Surface, y=value, fill=Win)) + 
+  geom_boxplot() + facet_wrap(~Statistic, scales="free_y")
+```
+
+Explanation: *We have plotted many of the statistics for all of Kyrgios' matches in 2015, in relation to whether he won and the surface the match was played on. The difference in Aces between Kyrgios and his opponent is a major component of the matches that he has won, regardless of surface. Most other statistics are as expected: to win he needs to convert more break points than his opponent, win more points than the opponent.*
+
+## Deadline
+
+- Submit your plots and explanations (`pdf` or `word`, AND `Rmd`) to the instructor (Di Cook), electronically by 11am May 26. 
+- Winner will be announced in the final session of the workshop.
