@@ -1,0 +1,685 @@
+---
+title: "Introduction Exploring Data with R"
+author: "Professor Di Cook, Econometrics and Business Statistics, Monash University"
+date: "Beijing, China - May 24-26, 2016"
+output:
+  ioslides_presentation
+css:
+  my_css.css
+---
+
+```{r setup, include = FALSE}
+library("knitr")
+opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  cache = FALSE,
+  fig.height = 2,
+  fig.width = 5,
+  fig.caption = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+options(digits=2)
+library("rmarkdown")
+library("devtools")
+library("readr")
+library("tidyr")
+library("ggplot2")
+library("ggthemes")
+library("gridExtra")
+library("dplyr")
+library("lubridate")
+library("GGally")
+library("rworldmap")
+library("ggmap")
+library("scales")
+library("dichromat")
+library("RColorBrewer")
+library("viridis")
+library("purrr")
+library("broom")
+library("timeDate")
+library("haven")
+library("boot")
+library("plotly")
+```
+
+## Outline
+
+- Session 1: Motivation, why and how to think about data, and getting started with R
+- Session 2: Making basic plots, grammar of graphics, good practices
+- <font color="#7c8a1a"> Session 3: Advanced graphics, layering, using maps </font>
+
+(If you re-started RStudio, be sure to re-open your project too.)
+
+## Building charts piecewise {.flexbox .vcenter #myImagePage1}
+
+![](vis-process.pdf)
+
+## Back to Education - How to Make the Plots
+
+Read the OECD PISA data
+
+```{r load_data}
+student2012.sub <- readRDS("../data/student_sub.rds")
+dim(student2012.sub)
+student2012.sub$ST04Q01 <- factor(student2012.sub$ST04Q01, 
+  levels=c(1,2), labels=c("Female", "Male"))
+```
+
+## 
+
+Calculate the statistics: Mean difference
+
+```{r computemean}
+student2012.stats <- student2012.sub %>% 
+  group_by(CNT) %>%
+  summarise(wmathgap=weighted.mean(PV1MATH[ST04Q01=="Male"], 
+                  w=SENWGT_STU[ST04Q01=="Male"], na.rm=T)-
+               weighted.mean(PV1MATH[ST04Q01=="Female"],
+                  w=SENWGT_STU[ST04Q01=="Female"], na.rm=T))
+kable(head(student2012.stats))
+```
+
+## Map
+
+- Means are point estimates
+- Map mean difference to point geom, using position along a line
+
+## Plot - Need to Order!
+
+```{r fig.width=4, fig.height=4.5}
+ggplot(data=student2012.stats) + 
+  geom_point(aes(x=CNT, y=wmathgap), size=3) + 
+ coord_flip() + theme_bw()
+```
+
+
+
+## Arrange
+
+- Arrange: by country
+- Order by magnitude of difference
+
+
+##
+
+```{r fig.width=4, fig.height=4.5}
+student2012.stats$CNT <- factor(student2012.stats$CNT, 
+    levels=student2012.stats$CNT[order(student2012.stats$wmathgap)])
+ggplot(data=student2012.stats) + 
+  geom_point(aes(x=CNT, y=wmathgap), size=3) + 
+ coord_flip() + theme_bw()
+```
+
+
+## Inference
+
+Create bootstrap confidence intervals for each mean difference
+
+```{r}
+cifn <- function(d, i) {
+  x <- d[i,]
+  ci <- weighted.mean(x$PV1MATH[x$ST04Q01=="Male"], 
+          w=x$SENWGT_STU[x$ST04Q01=="Male"], na.rm=T)-
+        weighted.mean(x$PV1MATH[x$ST04Q01=="Female"],
+          w=x$SENWGT_STU[x$ST04Q01=="Female"], na.rm=T)
+  ci
+}
+```
+
+##
+```{r}
+bootfn <- function(d) {
+  r <- boot(d, statistic=cifn, R=100)
+  l <- sort(r$t)[5]
+  u <- sort(r$t)[95]
+  ci <- c(l, u)
+  return(ci)
+}
+```
+
+## 
+
+Apply ci functions to data
+
+```{r}
+student2012.sub.summary.gap.boot <- student2012.sub %>% 
+  split(.$CNT) %>% purrr::map(bootfn) %>% data.frame() %>%
+  gather(CNT, value)
+student2012.sub.summary.gap.boot$ci <- 
+  rep(c("ml","mu"), 
+      length(unique(student2012.sub.summary.gap.boot$CNT)))
+student2012.sub.summary.gap.boot.wide <- 
+  student2012.sub.summary.gap.boot %>% 
+  spread(ci, value)
+student2012.sub.summary.gap <- merge(student2012.stats,
+  student2012.sub.summary.gap.boot.wide)
+kable(head(student2012.sub.summary.gap))
+```
+
+## Plot
+
+```{r fig.width=4, fig.height=4.5}
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_point(aes(x=CNT, y=wmathgap), size=3) + 
+  geom_segment(aes(x=CNT, xend=CNT, y=ml, yend=mu)) + 
+  coord_flip() + theme_bw() 
+```
+
+## Enhance
+
+Match three digit codes to country names, more recognizable labels
+
+```{r}
+student2012.sub.summary.gap$name <- NA
+for (i in 1:length(student2012.sub.summary.gap$name))  
+  student2012.sub.summary.gap$name[i] <-
+  isoToName(as.character(student2012.sub.summary.gap$CNT[i]))
+# QCN is Shanghai, not whole of China - 
+# Don't know what country TAP is
+student2012.sub.summary.gap$name[
+  student2012.sub.summary.gap$CNT == "QCN"] <- 
+  isoToName("CHN")
+student2012.sub.summary.gap$name[
+  student2012.sub.summary.gap$CNT == "TAP"] <- 
+  "TAP"
+```
+
+## 
+
+Create categorical gap variable to draw attention to significant difference
+
+```{r}
+student2012.sub.summary.gap$wmathgap_cat <- "same"
+student2012.sub.summary.gap$wmathgap_cat[
+  student2012.sub.summary.gap$ml > 0] <- "boys"
+student2012.sub.summary.gap$wmathgap_cat[
+  student2012.sub.summary.gap$mu < 0] <- "girls"
+kable(head(student2012.sub.summary.gap))
+```
+
+## Order Again
+
+```{r}
+student2012.sub.summary.gap$name <- factor(student2012.sub.summary.gap$name, 
+    levels=student2012.sub.summary.gap$name[
+      order(student2012.sub.summary.gap$wmathgap)])
+kable(head(student2012.sub.summary.gap))
+```
+
+## Plot - with Guide Lines
+
+```{r fig.show='hide'}
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + 
+  geom_point(aes(x=name, y=wmathgap, color=wmathgap_cat), 
+             size=3) + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu, 
+                   color=wmathgap_cat)) + 
+  coord_flip() + theme_bw() 
+```
+
+##
+
+```{r echo=FALSE, fig.width=6, fig.height=6}
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + 
+  geom_point(aes(x=name, y=wmathgap, color=wmathgap_cat), 
+             size=3) + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu, 
+                   color=wmathgap_cat)) + 
+  coord_flip() + theme_bw()  
+```
+
+## Enhance More
+
+- Labels
+- Axis limits
+- Grid lines
+- Color
+
+##
+
+```{r fig.show='hide'}
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + 
+  geom_point(aes(x=name, y=wmathgap, color=wmathgap_cat), size=3) + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu, 
+     color=wmathgap_cat)) + xlab("") +  
+  scale_colour_manual("", values=c("boys"="skyblue", 
+    "girls"="pink", "same"="lightgreen")) +
+  scale_y_continuous("Girls <----------> Boys", 
+    breaks=seq(-30, 30, 10), limits=c(-35, 35), 
+    labels=c(seq(30, 0, -10), seq(10, 30, 10))) + 
+  coord_flip() + theme_bw() + 
+  theme(axis.text.x = element_text(size=5), 
+        axis.text.y = element_text(size=5), 
+        axis.title = element_text(size=7), 
+        legend.text = element_text(size=5),
+        legend.title = element_text(size=5))
+```
+
+##
+
+```{r echo=FALSE, fig.width=6, fig.height=6}
+ggplot(data=student2012.sub.summary.gap) + 
+  geom_hline(yintercept=0, colour="grey80") + 
+  geom_point(aes(x=name, y=wmathgap, color=wmathgap_cat), 
+             size=3) + 
+  geom_segment(aes(x=name, xend=name, y=ml, yend=mu, 
+                   color=wmathgap_cat)) + 
+  xlab("") +  
+  scale_colour_manual("", values=c("boys"="skyblue", 
+    "girls"="pink", "same"="lightgreen")) +
+  scale_y_continuous("Girls <----------> Boys", 
+    breaks=seq(-30, 30, 10), limits=c(-35, 35), 
+    labels=c(seq(30, 0, -10), seq(10, 30, 10))) + 
+  coord_flip() + theme_bw() + 
+  theme(axis.text.x = element_text(size=5), 
+        axis.text.y = element_text(size=5), 
+        axis.title = element_text(size=7), 
+        legend.text = element_text(size=5),
+        legend.title = element_text(size=5))
+```
+
+## Interactive
+
+```{r fig.width=5, fig.height=5, fig.align='center'}
+ggplotly()
+```
+
+## Maps
+
+Map data is essentially a set of points, and line segments. You can get maps from various sources, and wrangle the files/data into an R object. This can be merged with data to provide spatial context to problems.
+
+```{r mapdata}
+world <- getMap(resolution = "low")
+extractPolys <- function(p) {
+  polys <- NULL
+  for (i in 1:length(p)) {
+    for (j in 1:length(p[[i]]@Polygons)) {
+      x <- p[[i]]@Polygons[[j]]@coords
+      polys$lon <- c(polys$lon, x[,1])
+      polys$lat <- c(polys$lat, x[,2])
+      polys$ID <- c(polys$ID, rep(p[[i]]@ID, nrow(x)))
+      polys$region <- c(polys$region, 
+        rep(paste(p[[i]]@ID, j, sep="_"), nrow(x)))
+      polys$order <- c(polys$order, 1:nrow(x))
+    }
+  }
+  return(data.frame(polys))
+}
+polys <- extractPolys(world@polygons)
+```
+
+## 
+
+Here is what is looks like:
+
+```{r}
+kable(head(polys))
+```
+
+## A map is a set of points...
+
+```{r eval=FALSE}
+ggplot(data=filter(polys, region=="China_1"), 
+       aes(x=lon, y=lat)) + 
+  geom_point()
+```
+
+```{r fig.width=6, fig.height=4, fig.align='center', echo=FALSE}
+ggplot(data=filter(polys, region=="China_1")[sample(1:2478, 800),], 
+       aes(x=lon, y=lat)) + 
+  geom_point()
+```
+
+## connected in the right order
+
+```{r fig.width=6, fig.height=4, fig.align='center'}
+ggplot(data=filter(polys, region=="China_1"), 
+       aes(x=lon, y=lat, order=order)) + 
+  geom_path()
+```
+
+## as a group
+
+```{r fig.width=6, fig.height=4, fig.align='center'}
+ggplot(data=filter(polys, region=="China_1" | region=="Australia_1"), 
+       aes(x=lon, y=lat, group=region, order=order)) + 
+  geom_path()
+```
+
+## Plot all
+
+```{r fig.width=6, fig.height=4, fig.align='center'}
+ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order))
+```
+
+## 
+
+Join education data with map polygons
+
+```{r}
+polys <- polys %>% rename(name = ID)
+student2012.sub.map <- left_join(
+  student2012.sub.summary.gap, polys)
+student2012.sub.map <- student2012.sub.map %>% 
+  arrange(region, order)
+```
+
+## Map theme
+
+Make it look like a map, by tweaking the plot appearance
+
+```{r}
+theme_map <- theme_bw()
+theme_map$line <- element_blank()
+theme_map$strip.text <- element_blank()
+theme_map$axis.text <- element_blank()
+theme_map$plot.title <- element_blank()
+theme_map$axis.title <- element_blank()
+theme_map$panel.border <- element_rect(
+  colour = "grey90", size=1, fill=NA)
+```
+
+## Plot - axes, colors, coord system
+
+```{r fig.show='hide'}
+ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order), 
+            colour=I("grey90"), size=0.1) + 
+  geom_polygon(data=student2012.sub.map, aes(x=lon, y=lat, 
+            group=region, order=order,  
+            fill=wmathgap_cat)) +
+  scale_fill_manual("Diff>5", values=c("boys"="skyblue", 
+                                    "girls"="pink", 
+                                    "same"="lightgreen")) + 
+  scale_x_continuous(expand=c(0,0)) + 
+  scale_y_continuous(expand=c(0,0)) +
+  coord_equal() + theme_map 
+```
+
+##
+
+```{r echo=FALSE, fig.width=8, fig.height=6, fig.align='center'}
+ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order), 
+            colour=I("grey90"), size=0.1) + 
+  geom_polygon(data=student2012.sub.map, aes(x=lon, y=lat, 
+            group=region, order=order,  
+            fill=wmathgap_cat)) +
+  scale_fill_manual("Diff>5", values=c("boys"="skyblue", 
+                                    "girls"="pink", 
+                                    "same"="lightgreen")) + 
+  scale_x_continuous(expand=c(0,0)) + 
+  scale_y_continuous(expand=c(0,0)) +
+  coord_equal() + theme_map 
+```
+
+## Interactive
+
+```{r fig.width=8, fig.height=4.5, fig.align='center'}
+ggplotly()
+```
+
+## Raster maps
+
+Image maps can also be pulled using the package `ggmap` to use as the background for data.
+
+```{r eval=FALSE}
+gm <- get_googlemap(center = c(lon=144.96, lat=-37.815), zoom=14)
+ggmap(gm) 
+```
+
+![](googlemap.png)
+
+##
+
+```{r eval=FALSE}
+sensor_loc <- read_csv("../data/Pedestrian_Sensor_Locations.csv")
+ggmap(gm) + geom_point(data=sensor_loc, aes(x=Longitude, y=Latitude))
+```
+
+![](googlemap-sensors.png)
+
+## Your Turn
+
+![](lorikeets.png)
+
+- With your neighbor, take one of the problems that you brainstormed on the first day, and work a question through from start to end, summarise.
+- Choices were: economics, gapminder, pedestrian sensor.
+
+## Temporal data - Melbourne temperature
+
+```{r}
+melbtemp <- read.fwf("../data/ASN00086282.dly", 
+   c(11, 4, 2, 4, rep(c(5, 1, 1, 1), 31)), fill=T)
+melbtemp.m <- melbtemp %>%
+  select(num_range("V", c(1,2,3,4,seq(5,128,4)))) %>%
+  filter(V4 %in% c("PRCP", "TMAX", "TMIN")) %>%
+  gather(day, value, V5:V125, na.rm = TRUE) %>%
+  spread(V4, value) %>%
+  mutate(
+    tmin = as.numeric(TMIN) / 10,
+    tmax = as.numeric(TMAX) / 10,
+    t_range = tmax - tmin,
+    prcp = as.numeric(PRCP) / 10
+  ) %>%
+  rename(stn=V1, year=V2, month=V3)
+```
+
+##
+
+```{r}
+melbtemp.m$day <- factor(melbtemp.m$day, 
+  levels=c("V5","V9","V13","V17","V21","V25","V29",
+           "V33","V37","V41","V45","V49","V53","V57",
+           "V61","V65","V69","V73","V77","V81","V85",
+           "V89","V93","V97","V101","V105","V109",
+           "V113","V117","V121","V125"),
+  labels=1:31)
+melbtemp.m$date <- as.Date(paste(melbtemp.m$day, 
+     melbtemp.m$month, melbtemp.m$year, sep="-"),
+     "%d-%m-%Y")
+```
+
+## 
+
+What are the temperature patterns in Melbourne over time? Daily resolution: global and seasonal patterns
+
+```{r}
+kable(head(melbtemp.m))
+```
+
+## Oops, didn't handle missings!
+
+```{r fig.width=7.5, fig.height=3.5}
+ggplot(data=melbtemp.m, aes(x=date, y=tmax)) + geom_point(size=0.1)
+```
+
+## Replace -9999 as NAs
+
+```{r}
+melbtemp.m <- melbtemp %>%
+  select(num_range("V", c(1,2,3,4,seq(5,128,4)))) %>%
+  filter(V4 %in% c("PRCP", "TMAX", "TMIN")) %>%
+  gather(day, value, V5:V125, na.rm = TRUE) %>%
+  mutate(value=ifelse(value<(-9000), NA, value)) %>%
+  spread(V4, value) %>%
+  mutate(
+    tmin = as.numeric(TMIN) / 10,
+    tmax = as.numeric(TMAX) / 10,
+    t_range = tmax - tmin,
+    prcp = as.numeric(PRCP) / 10
+  ) %>%
+  rename(stn=V1, year=V2, month=V3)
+```
+
+```{r echo=FALSE}
+melbtemp.m$day <- factor(melbtemp.m$day, 
+  levels=c("V5","V9","V13","V17","V21","V25","V29",
+           "V33","V37","V41","V45","V49","V53","V57",
+           "V61","V65","V69","V73","V77","V81","V85",
+           "V89","V93","V97","V101","V105","V109",
+           "V113","V117","V121","V125"),
+  labels=1:31)
+melbtemp.m$date <- as.Date(paste(melbtemp.m$day, 
+     melbtemp.m$month, melbtemp.m$year, sep="-"),
+     "%d-%m-%Y")
+```
+
+## Plot
+
+```{r fig.width=7.5, fig.height=3.5}
+ggplot(data=melbtemp.m, aes(x=date, y=tmax)) + geom_point(size=0.1)
+```
+
+## Aspect ratio
+
+Aspect ratio emphasizes global trend
+
+```{r fig.width=3, fig.height=4}
+ggplot(data=melbtemp.m, aes(x=date, y=tmax)) + 
+  geom_point(size=0.5, alpha=0.4) +
+  theme_bw() + theme(aspect.ratio=2)
+```
+
+## Aspect ratio
+
+Aspect ratio emphasizes seasonality
+
+```{r fig.width=8, fig.height=2, fig.align='center'}
+ggplot(data=melbtemp.m, aes(x=date, y=tmax)) + 
+  geom_point(size=0.1) +
+  theme(aspect.ratio=0.1)
+```
+
+## Seasonal
+
+```{r fig.width=7, fig.height=3}
+ggplot(data=melbtemp.m, aes(x=factor(month), y=tmax)) + 
+  geom_boxplot() +
+  theme(aspect.ratio=0.3)
+```
+
+Cooler in June-July. Variability is higher in the summer.
+
+## Global trend aggregate
+
+Long time series make it difficult to examine trend. Aggregate on year, and use the min and max values. 
+
+```{r}
+melbtemp.m.r <- melbtemp.m %>% 
+  group_by(year) %>%
+  summarise(tmin=min(tmin, na.rm=TRUE), 
+            tmax=max(tmax, na.rm=TRUE)) 
+```
+
+## Global Trend
+
+```{r fig.width=4, fig.height=4}
+ggplot(data=melbtemp.m.r, aes(x=year, ymin=tmin, ymax=tmax)) + 
+  geom_ribbon(alpha=0.5) + 
+  geom_smooth(aes(x=year, y=tmax), se=F, method="lm", colour="black") +
+  geom_smooth(aes(x=year, y=tmin), se=F, method="lm", colour="black") +
+  theme(aspect.ratio=1) + xlab("") + ylab("Temperature")
+```
+
+## Most years similar
+
+```{r fig.width=8.5, fig.height=4}
+ggplot(data=filter(melbtemp.m, year > 1990, year < 2011), 
+       aes(x=factor(month), y=tmax)) + 
+  geom_boxplot() + facet_wrap(~year) +
+  theme(aspect.ratio=0.3)
+```
+
+
+## Your Turn
+
+Examine global and seasonal patterns of precipitation in Melbourne
+
+##
+
+```{r CO2, fig.width=8, fig.height=5, warning=FALSE, message=FALSE, echo=FALSE, cache=FALSE}
+CO2.ptb<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ptb.csv", sep=",", skip=69)
+colnames(CO2.ptb)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ptb$lat<-71.3
+CO2.ptb$lon<-(-156.6)
+CO2.ptb$stn<-"ptb"
+
+CO2.ljo<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ljo.csv", sep=",", skip=69)
+colnames(CO2.ljo)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ljo$lat<-32.9
+CO2.ljo$lon<-(-117.3)
+CO2.ljo$stn<-"ljo"
+
+CO2.mlf<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_mlf.csv", sep=",", skip=69)
+colnames(CO2.mlf)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.mlf$lat<-19.5
+CO2.mlf$lon<-(-155.6)
+CO2.mlf$stn<-"mlf"
+
+CO2.spo<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_spo.csv", sep=",", skip=69)
+colnames(CO2.spo)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.spo$lat<- (-90.0)
+CO2.spo$lon<-0
+CO2.spo$stn<-"spo"
+
+CO2.ker<-read.table("http://scrippsco2.ucsd.edu/sites/default/files/data/flask_co2_and_isotopic/daily_co2/fldav_ker.csv", sep=",", skip=69)
+colnames(CO2.ker)<-c("date", "time", "day", "decdate", "n", "flg", "co2")
+CO2.ker$lat<-(-29.2)
+CO2.ker$lon<-(-177.9)
+CO2.ker$stn<-"ker"
+
+CO2.all<-rbind(CO2.ker,CO2.ljo,CO2.mlf,CO2.ptb,CO2.spo)
+CO2.all$date<-as.Date(CO2.all$date)
+
+CO2.all$invlat=-1*CO2.all$lat
+CO2.all$stn=reorder(CO2.all$stn,CO2.all$invlat)
+
+CO2.all.loc <- rbind(CO2.ker[1,],CO2.ljo[1,],CO2.mlf[1,],CO2.ptb[1,],CO2.spo[1,])
+```
+
+## Multiple Plots on a Sheet
+
+Occasionally you would like to organize your plots in special ways. The `gridExtra` can be used to take individual plots and lay them out together. 
+
+```{r}
+p1 <- ggplot(data=subset(CO2.all, flg < 2), 
+             aes(x=date, y=co2, colour=stn)) +
+  geom_line() + xlab("Year") + ylab("CO2 (ppm)") + 
+		facet_wrap(~stn, ncol=1) + 
+  theme(axis.text.y=element_text(size = 6), legend.position="none")
+p2 <- ggplot(data=subset(CO2.all, flg < 2), 
+             aes(date, co2, colour=stn)) +
+  geom_line() + xlab("Year") + ylab("CO2 (ppm)") + 
+  theme(axis.text.y=element_text(size = 6), legend.position="none")
+p3 <- ggplot(data=polys) + 
+  geom_path(aes(x=lon, y=lat, group=region, order=order), 
+            colour=I("grey60"), size=0.1) + 
+  geom_point(data=CO2.all.loc, aes(x=lon, y=lat, group=1), colour="red", 
+                      size=2, alpha=0) +
+  geom_text(data=CO2.all.loc, aes(x=lon, y=lat, label=stn, group=1), 
+            colour="orange", size=5) +
+  coord_equal() + theme_map 
+```
+
+##
+
+```{r fig.width=7, fig.height=5}
+grid.arrange(p1, p2, p3, layout_matrix = rbind(c(1,2),c(3,3)))
+```
+
+## Credit
+
+Notes prepared by Di Cook, building on joint workshops with Carson Sievert, Heike Hofmann, Eric Hare, Hadley Wickham.
+
+![](carson2.jpg) ![](heike.jpg) ![](eric.jpg) ![](hadley.jpg)
+
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
